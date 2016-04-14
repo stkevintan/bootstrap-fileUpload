@@ -9,10 +9,26 @@ export default class FileUpload {
     K = 1024
     M = 1024 * this.K
     G = 1024 * this.M
+    constants = {
+        //status
+        READY: 'READY',
+        CANCELLED: 'CANCELLED',
+        UPLOADING: 'UPLOADING',
+        FAILED: 'FAILED',
+        UPLOADED: 'UPLOADED',
+        //Event
+        EVENT_UNFINISHED: 'unfinished',
+        EVENT_FAILED: 'failed',
+        EVENT_CANCELLED: 'cancelled',
+        EVENT_UPLOADING: 'uploading',
+        EVENT_UPLOADED: 'uploaded'
+    }
+    Counter = 0
 
     FileWrapper(obj) {
         this.file = obj.file;
         this.el = obj.el;
+        this.state = obj.state || this.READY
     }
 
     constructor(rootEl, config = {}) {
@@ -30,26 +46,34 @@ export default class FileUpload {
         this.check();
         this.domInit();
         this.listen();
+
     }
 
+    getTotalState = ()=> {
+        return this.FileList.some(fileWrapper =>fileWrapper.state !== this.constants.UPLOADING) ?
+            this.constants.READY : this.constants.UPLOADING
+    }
     check = ()=> {
         //check
         if (this.$viewer.length === 0)this.config.preview = 'none';
 
-        if (!this.support && this.config.preview === 'thumbnail') {
-            console.error('[FileUpload] cannot read image thumbnail. fileReader is not supported in current browser.');
-            this.config.preview = 'filename';
+        if (!this.support && this.config.preview !== 'none') {
+            console.error('[FileUpload] Cannot read File. File Object is not supported in current browser.');
+            this.config.preview = 'none';
         }
 
         if (!this.support && this.config.async === true) {
-            console.error('[FileUpload] cannot async upload files, fileReader is not supported in current browser.');
+            console.error('[FileUpload] Cannot async upload files, fileReader is not supported in current browser.');
             this.config.async = false;
         }
 
         if (this.config.async && this.config.url.trim().length === 0) {
+            console.error('[FileUpload] Cannot upload without knowing the destination .')
             this.config.async = false;
         }
+
     }
+
     domInit = ()=> {
         this.$dropper.css('position', 'relative');
         this.$input = this.$dropper.append(`
@@ -71,18 +95,24 @@ export default class FileUpload {
             this.$dropper.removeClass('dropping');
         });
         this.$input.on('change', ()=> {
-            this.onChange(this.$input[0].files);
+            if (this.support)this.onChange(this.$input[0].files);
         });
         this.$viewer.on('click', 'li .close', (e) => {
             e.preventDefault();
-            this.removeFile($(e.currentTarget).parent());
+            this.onCloseBtnClick($(e.currentTarget).parent());
         });
+
         if (this.support) {
             this.$dropper.closest('form').submit((e)=> {
                 this.$input.val('');
+                if (this.config.async && this.getTotalState() === this.constants.UPLOADING) {
+                    //if the fileUploading is still processing.
+                    this.$dropper.trigger(this.constants.EVENT_UNFINISHED, [e]);
+                }
             });
         }
     }
+
     onChange = (files)=> {
         this.$dropper.removeClass('dropping');
         if (files.length === 0) return;
@@ -90,6 +120,7 @@ export default class FileUpload {
             this.$list.empty();
             this.FileList = [];
         }
+
         for (let i = 0; i < files.length; i++) {
             let file = files[i];
             this.addFile(file);
@@ -97,6 +128,7 @@ export default class FileUpload {
     }
 
     get$li(filename, filesize, file) {
+        if (this.config.preview === 'none') return;
         const $li = $(document.createElement('li'));
         $li.append(`<div class="info">  <span class="name">${filename}</span><small class='text-muted'>${filesize}</small></div>`);
         if (this.config.preview === 'thumbnail') {
@@ -123,9 +155,10 @@ export default class FileUpload {
     addFile = (file) => {
         let name = file.name;
         let size = this.normalizeSize(file.size);
-        const newFile = new this.FileWrapper({file, el: this.get$li(name, size, file)});
-        this.$list.append(newFile.el);
-        this.FileList.push(newFile);
+        const fileWrapper = new this.FileWrapper({file, el: this.get$li(name, size, file)});
+        this.config.preview !== 'none' && this.$list.append(fileWrapper.el);
+        this.FileList.push(fileWrapper);
+
         if (this.config.async) {
             const formData = new FormData();
             formData.append(this.config.name, file);
@@ -138,27 +171,40 @@ export default class FileUpload {
                 xhr: () => {
                     const xhr = new window.XMLHttpRequest();
                     xhr.upload.addEventListener('progress', (e)=> {
-                        newFile.el.addClass('uploading');
+                        let percent = 0;
                         if (e.lengthComputable) {
-                            const percent = e.loaded / e.total;
-                            this.changeProgress(newFile.el, percent);
+                            percent = e.loaded / e.total;
+                            this.changeProgress(fileWrapper.el, percent);
                         }
-                        if (newFile.el.hasClass('canceled')) {
+
+                        if (fileWrapper.state === this.constants.CANCELLED) {
                             xhr.abort();
                         }
+
+                        fileWrapper.state = this.constants.UPLOADING;
+                        this.$dropper.trigger(this.constants.EVENT_UPLOADING, [percent, fileWrapper])
                     }, false);
                     return xhr;
                 }
             }).done((res)=> {
                 const data = JSON.parse(res);
-                newFile.el.attr('data-id', data.id).removeClass('uploading');
+                fileWrapper.id = data.id || Counter++;
+                fileWrapper.state = this.constants.UPLOADED;
+                this.$dropper.trigger(this.constants.EVENT_UPLOADED, [fileWrapper]);
             }).fail((err)=> {
-                console.log(err);
-                this.FileList.splice(this.FileList.indexOf(newFile), 1);
+                console.error('[File Upload]', err);
+                this.FileList.splice(this.FileList.lastIndexOf(fileWrapper), 1);
                 //TODO 错误处理
-                this.changeProgress(newFile.el);
-                newFile.el.append(`<span class='text-danger'>上传失败</span>`)
-                    .removeClass('uploading').addClass('failed');
+                this.changeProgress(fileWrapper.el);
+                //fileWrapper.el.append(`<span class='text-danger'>上传失败</span>`);
+
+                fileWrapper.state = this.constants.FAILED;
+                /***
+                 * @param err {Object}
+                 * @param file {File}
+                 * @param $elem {jQuery}
+                 */
+                this.$dropper.trigger(this.constants.EVENT_FAILED, [err, fileWrapper]);
             });
         }
     }
@@ -171,37 +217,77 @@ export default class FileUpload {
 
     getFileList = () => this.FileList.map(obj => obj.file);
 
-    removeFile = ($li) => {
-        if (!this.support)return;//just cannot remove
-        if (!this.config.async || $li.hasClass('canceled')) {
+    onCloseBtnClick = ($li) => {
+        if (!this.support) return;//just impossible...
+        //get the fileWrappper Object
+        const index = this.FileList.findIndex(fw => fw.el[0] === $li[0]);
+        if (index === -1) {
+            // It's impossible,I think...
             $li.remove();
-            this.FileList = this.FileList.filter(File=> File.el !== $li);
             return;
         }
-        if ($li.hasClass('uploading'))  $li.removeClass('uploading').addClass('canceled');
-        else {
-            const id = $li.attr('data-id');
-            $.ajax({
-                url: this.config.url,
-                type: 'DELETE',
-                data: $li.attr('data-id') || 0
-            }).done(() => {
-                $li.remove();
-                this.FileList = this.FileList.filter(File=> File.el[0] !== $li[0]);
-            });
+        const fileWrapper = this.FileList[index];
+
+        if (!this.config.async) {
+            $li.remove();
+            this.FileList = this.FileList.splice(index, 1);
+        } else if (fileWrapper.state === this.constants.UPLOADING) {
+            //change state to cancelled, and the event loop will handle the rest...
+            fileWrapper.state = this.constants.CANCELLED;
+            this.$dropper.trigger(this.constants.EVENT_CANCELLED, [fileWrapper]);
+        } else {
+            this.removeFileById(fileWrapper.id);
         }
     }
+    removeFileById = (id)=> {
+        const index = this.FileList.findIndex(fw => fw.id === id);
+        if (index === -1)return;
+        $.ajax({
+            url: this.config.url,
+            type: 'DELETE',
+            data: id || 0
+        }).done(() => {
+            this.FileList[index].el.remove();
+            this.FileList.splice(index, 1);
+        });
+    }
+
     normalizeSize = (size) => {
         if (size > this.G) return (size / this.G).toFixed(2) + 'G';
         if (size > this.M) return (size / this.M).toFixed(2) + 'M';
         if (size > this.K) return (size / this.K).toFixed(2) + 'KB';
         return size.toFixed(2) + 'B';
     }
-    // addImage = (file)=> {
-    //     const reader = new FileReader();
-    //     reader.readAsDataURL(file);
-    //     reader.addEventListener('load', () => {
-    //         this.addPreview(reader.result, file.name);
-    //     });
-    // }
+}
+
+$.fn['fileUpload'] = function (opts) {
+    if (this.length === 0) return;
+    const $rootEl = $(this[0]);
+    up = new FileUpload($rootEl, opts);
+    return {
+        getFileList: ()=> {
+            up.getFileList(...arguments);
+            return this;
+        },
+        addFile: ()=> {
+            up.addFile(...arguments);
+            return this;
+        },
+        removeFile: ()=> {
+            up.removeFileById(...arguments);
+            return this;
+        },
+        on: ()=> {
+            this.$dropper.on(...arguments);
+            return this;
+        },
+        off: ()=> {
+            this.$dropper.off(...arguments);
+            return this;
+        },
+        one: ()=> {
+            this.$dropper.one(...arguments);
+            return this;
+        }
+    }
 }

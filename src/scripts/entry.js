@@ -2,10 +2,10 @@ import FileUpload from './fileUpload';
 
 $(() => {
     console.log('=w=');
-    const up = new FileUpload($('.u-dropzone'), {
+    const up = $('.u-dropzone').fileUpload({
         multiple: true,
         async: true,
-        url:'library',
+        url: 'library',
         preview: 'thumbnail'
     });
 
@@ -33,14 +33,14 @@ $(() => {
             })
         } else {
             //ie polyfill
-            let $iframe = $('iframe.free'),iframe;
+            let $iframe = $('iframe.free'), iframe;
             if ($iframe.length === 0) {
                 //create new iframe
                 iframe = $('body').append(`<iframe style='display:none' name='responseFrame${$('iframe').length}'></iframe>`).find('iframe').last()[0];
             } else {
                 iframe = $iframe.removeClass('free')[0];
             }
-            
+
             form.attr('target', iframe.name);
             iframe.onload = ()=> {
                 let doc = iframe.contentDocument || iframe.contentWindow.document;
@@ -50,6 +50,8 @@ $(() => {
                     formHandler(data);
                 } catch (e) {
                     handlerError();
+                } finally {
+                    iframe.className += ' free';
                 }
             }
         }
