@@ -25,10 +25,10 @@ export default class FileUpload {
     }
     Counter = 0
 
-    FileWrapper(obj) {
+    FileWrapper (obj) {
         this.file = obj.file;
         this.el = obj.el;
-        this.state = obj.state || this.READY
+        this.state = obj.state || 'READY'
     }
 
     constructor(rootEl, config = {}) {
@@ -199,11 +199,6 @@ export default class FileUpload {
                 //fileWrapper.el.append(`<span class='text-danger'>上传失败</span>`);
 
                 fileWrapper.state = this.constants.FAILED;
-                /***
-                 * @param err {Object}
-                 * @param file {File}
-                 * @param $elem {jQuery}
-                 */
                 this.$dropper.trigger(this.constants.EVENT_FAILED, [err, fileWrapper]);
             });
         }
@@ -263,30 +258,30 @@ export default class FileUpload {
 $.fn['fileUpload'] = function (opts) {
     if (this.length === 0) return;
     const $rootEl = $(this[0]);
-    up = new FileUpload($rootEl, opts);
+    const up = new FileUpload($rootEl, opts);
     return {
-        getFileList: ()=> {
+        getFileList: function () {
             up.getFileList(...arguments);
             return this;
         },
-        addFile: ()=> {
+        addFile: function () {
             up.addFile(...arguments);
             return this;
         },
-        removeFile: ()=> {
+        removeFile: function () {
             up.removeFileById(...arguments);
             return this;
         },
-        on: ()=> {
-            this.$dropper.on(...arguments);
+        on: function () {
+            $rootEl.on(...arguments);
             return this;
         },
-        off: ()=> {
-            this.$dropper.off(...arguments);
+        off: function () {
+            $rootEl.off(...arguments);
             return this;
         },
-        one: ()=> {
-            this.$dropper.one(...arguments);
+        one: function () {
+            $rootEl.one(...arguments);
             return this;
         }
     }

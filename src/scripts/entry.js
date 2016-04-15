@@ -9,6 +9,13 @@ $(() => {
         preview: 'thumbnail'
     });
 
+    up.on('uploading',function(e,percent,data){
+        console.log('uploading',percent,data);
+    });
+    up.on('uploaded',function(e,data){
+        console.log('uploaded',data);
+    })
+
     const form = $('form');
     const url = form.attr('action');
     form.submit(e=> {
